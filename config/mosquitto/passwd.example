@@ -1,0 +1,3 @@
+# TEMPLATE ONLY.
+# Generate the real passwd file locally:
+# ./scripts/generate_mqtt_credentials.sh

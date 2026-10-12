@@ -1,0 +1,53 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*/venv/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated logs / data
+*.log
+logs/
+data/
+*.sqlite
+*.db
+
+# Generated certificates and private keys
+certs/*
+!certs/README.md
+!certs/.gitkeep
+*.key
+*.csr
+*.srl
+*.pem
+
+# Generated MQTT credentials
+config/mosquitto/passwd
+config/mosquitto/passwd.tmp
+
+.coverage
+htmlcov/
+docker-compose.override.yml
+
+# Local backup and accidental files
+*.bak
+config/mosquitto;C

@@ -1,0 +1,8 @@
+# Least-privilege MQTT ACL.
+
+user edge_publisher
+topic write plant/reactor/telemetry
+
+user gateway_subscriber
+topic read plant/reactor/telemetry
+topic read $SYS/broker/version

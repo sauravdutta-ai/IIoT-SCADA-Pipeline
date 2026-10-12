@@ -1,0 +1,136 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    restart: unless-stopped
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./config/mosquitto/passwd:/mosquitto/config/passwd
+      - ./config/mosquitto/acl:/mosquitto/config/acl
+      - ./certs/ca.crt:/mosquitto/config/certs/ca.crt
+      - ./certs/server.crt:/mosquitto/config/certs/server.crt
+      - ./certs/server.key:/mosquitto/config/certs/server.key
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    environment:
+      MQTT_GATEWAY_USERNAME: ${MQTT_GATEWAY_USERNAME:?MQTT_GATEWAY_USERNAME must be set}
+      MQTT_GATEWAY_PASSWORD: ${MQTT_GATEWAY_PASSWORD:?MQTT_GATEWAY_PASSWORD must be set}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mosquitto_sub -h localhost -p 8883
+          --cafile /mosquitto/config/certs/ca.crt
+          -u "$${MQTT_GATEWAY_USERNAME}"
+          -P "$${MQTT_GATEWAY_PASSWORD}"
+          -t '$$SYS/broker/version' -C 1 -W 5 >/dev/null 2>&1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  influxdb:
+    image: influxdb:2.7.12
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_USERNAME:?INFLUX_USERNAME must be set}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD:?INFLUX_PASSWORD must be set}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-my-org}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-iiot_data}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?INFLUX_TOKEN must be set}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER must be set}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  ingestion_service:
+    build:
+      context: ./ingestion_service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 8883
+      MQTT_TOPIC: ${MQTT_TOPIC:-plant/reactor/telemetry}
+      MQTT_GATEWAY_USERNAME: ${MQTT_GATEWAY_USERNAME:?MQTT_GATEWAY_USERNAME must be set}
+      MQTT_GATEWAY_PASSWORD: ${MQTT_GATEWAY_PASSWORD:?MQTT_GATEWAY_PASSWORD must be set}
+      MQTT_CA_CERT: /app/certs/ca.crt
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: ${INFLUX_TOKEN:?INFLUX_TOKEN must be set}
+      INFLUX_ORG: ${INFLUX_ORG:-my-org}
+      INFLUX_BUCKET: ${INFLUX_BUCKET:-iiot_data}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ML_BUFFER_SIZE: ${ML_BUFFER_SIZE:-200}
+      ML_RETRAIN_INTERVAL_SECONDS: ${ML_RETRAIN_INTERVAL_SECONDS:-300}
+      WARMUP_TEMPERATURE_THRESHOLD_K: ${WARMUP_TEMPERATURE_THRESHOLD_K:-325.0}
+      INFLUX_WRITE_MAX_RETRIES: ${INFLUX_WRITE_MAX_RETRIES:-3}
+      INFLUX_WRITE_RETRY_DELAY_SECONDS: ${INFLUX_WRITE_RETRY_DELAY_SECONDS:-0.5}
+    volumes:
+      - ./certs/ca.crt:/app/certs/ca.crt:ro
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  edge_device:
+    build:
+      context: ./edge_device
+    restart: unless-stopped
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 8883
+      MQTT_TOPIC: ${MQTT_TOPIC:-plant/reactor/telemetry}
+      MQTT_EDGE_USERNAME: ${MQTT_EDGE_USERNAME:?MQTT_EDGE_USERNAME must be set}
+      MQTT_EDGE_PASSWORD: ${MQTT_EDGE_PASSWORD:?MQTT_EDGE_PASSWORD must be set}
+      MQTT_CA_CERT: /app/certs/ca.crt
+      SENSOR_ID: ${SENSOR_ID:-CSTR_01}
+      PUBLISH_INTERVAL: ${PUBLISH_INTERVAL:-1.0}
+    volumes:
+      - ./certs/ca.crt:/app/certs/ca.crt:ro
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  influxdb_data:
+  influxdb_config:
+  grafana_data:
